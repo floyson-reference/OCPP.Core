@@ -30,7 +30,6 @@ namespace OCPP.Core.Database
     public partial class OCPPCoreContext : DbContext
     {
         private IConfiguration _configuration;
-
         public OCPPCoreContext(IConfiguration config) : base()
         {
             _configuration = config;
