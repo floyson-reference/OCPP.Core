@@ -42,8 +42,8 @@ namespace OCPP.Core.Server
         /// <summary>
         /// Constructor
         /// </summary>
-        public ControllerOCPP20(IConfiguration config, ILoggerFactory loggerFactory, ChargePointStatus chargePointStatus) :
-            base(config, loggerFactory, chargePointStatus)
+        public ControllerOCPP20(IConfiguration config, ILoggerFactory loggerFactory, ChargePointStatus chargePointStatus, OCPPCoreContext dbContext) :
+            base(config, loggerFactory, chargePointStatus, dbContext)
         {
             Logger = loggerFactory.CreateLogger(typeof(ControllerOCPP20));
         }
@@ -51,7 +51,7 @@ namespace OCPP.Core.Server
         /// <summary>
         /// Processes the charge point message and returns the answer message
         /// </summary>
-        public OCPPMessage ProcessRequest(OCPPMessage msgIn)
+        public OCPPMessage ProcessRequest(OCPPMessage msgIn, OCPPMiddleware ocppMiddleware)
         {
             OCPPMessage msgOut = new OCPPMessage();
             msgOut.MessageType = "3";
@@ -72,11 +72,11 @@ namespace OCPP.Core.Server
                         break;
 
                     case "Authorize":
-                        errorCode = HandleAuthorize(msgIn, msgOut);
+                        errorCode = HandleAuthorize(msgIn, msgOut, ocppMiddleware);
                         break;
 
                     case "TransactionEvent":
-                        errorCode = HandleTransactionEvent(msgIn, msgOut);
+                        errorCode = HandleTransactionEvent(msgIn, msgOut, ocppMiddleware);
                         break;
 
                     case "MeterValues":
@@ -119,7 +119,7 @@ namespace OCPP.Core.Server
             }
             else
             {
-                Logger.LogError("ControllerOCPP20 => Protocol error: wrong message type", msgIn.MessageType);
+                Logger.LogError("ControllerOCPP20 => Protocol error: wrong message type '{0}'", msgIn.MessageType);
                 errorCode = ErrorCodes.ProtocolError;
             }
 
@@ -150,6 +150,14 @@ namespace OCPP.Core.Server
                     HandleUnlockConnector(msgIn, msgOut);
                     break;
 
+                case "SetChargingProfile":
+                    HandleSetChargingProfile(msgIn, msgOut);
+                    break;
+
+                case "ClearChargingProfile":
+                    HandleClearChargingProfile(msgIn, msgOut);
+                    break;
+
                 default:
                     WriteMessageLog(ChargePointStatus.Id, null, msgIn.Action, msgIn.JsonPayload, "Unknown answer");
                     break;
@@ -159,7 +167,7 @@ namespace OCPP.Core.Server
         /// <summary>
         /// Helper function for writing a log entry in database
         /// </summary>
-        private bool WriteMessageLog(string chargePointId, int? connectorId, string message, string result, string errorCode)
+        private void WriteMessageLog(string chargePointId, int? connectorId, string message, string result, string errorCode)
         {
             try
             {
@@ -174,20 +182,29 @@ namespace OCPP.Core.Server
 
                     if (doLog)
                     {
-                        using (OCPPCoreContext dbContext = new OCPPCoreContext(Configuration))
+                        MessageLog msgLog = new MessageLog();
+                        msgLog.ChargePointId = chargePointId;
+                        msgLog.ConnectorId = connectorId;
+                        msgLog.LogTime = DateTime.UtcNow;
+                        msgLog.Message = message;
+                        msgLog.Result = result;
+                        msgLog.ErrorCode = errorCode;
+                        DbContext.MessageLogs.Add(msgLog);
+                        Logger.LogTrace("MessageLog => Writing entry '{0}'", message);
+                        DbContext.SaveChanges();
+                        /*
+                         * Problem with async operation and ID generation (conflict with EF tracking)
+                        _ = DbContext.SaveChangesAsync().ContinueWith(task =>
                         {
-                            MessageLog msgLog = new MessageLog();
-                            msgLog.ChargePointId = chargePointId;
-                            msgLog.ConnectorId = connectorId;
-                            msgLog.LogTime = DateTime.UtcNow;
-                            msgLog.Message = message;
-                            msgLog.Result = result;
-                            msgLog.ErrorCode = errorCode;
-                            dbContext.MessageLogs.Add(msgLog);
-                            Logger.LogTrace("MessageLog => Writing entry '{0}'", message);
-                            dbContext.SaveChanges();
-                        }
-                        return true;
+                            if (task.IsFaulted && task.Exception != null)
+                            {
+                                foreach (var exp in task.Exception.InnerExceptions)
+                                {
+                                    Logger.LogError(exp, "ControllerOCPP20.WriteMessageLog=> Error writing message async to DB: '{0}'", message);
+                                }
+                            }
+                        });
+                        */
                     }
                 }
             }
@@ -195,7 +212,6 @@ namespace OCPP.Core.Server
             {
                 Logger.LogError(exp, "MessageLog => Error writing entry '{0}'", message);
             }
-            return false;
         }
     }
 }

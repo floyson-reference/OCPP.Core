@@ -1,6 +1,6 @@
 ﻿/*
  * OCPP.Core - https://github.com/dallmann-consulting/OCPP.Core
- * Copyright (C) 2020-2021 dallmann consulting GmbH.
+ * Copyright (C) 2020-2025 dallmann consulting GmbH.
  * All Rights Reserved.
  *
  * This program is free software: you can redistribute it and/or modify
@@ -21,8 +21,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using OCPP.Core.Database;
 using OCPP.Core.Management.Models;
@@ -45,77 +45,115 @@ namespace OCPP.Core.Management.Controllers
 
                 cpvm.CurrentId = Id;
 
-                using (OCPPCoreContext dbContext = new OCPPCoreContext(this.Config))
-                {
-                    Logger.LogTrace("ChargePoint: Loading charge points...");
-                    List<ChargePoint> dbChargePoints = dbContext.ChargePoints.ToList<ChargePoint>();
-                    Logger.LogInformation("ChargePoint: Found {0} charge points", dbChargePoints.Count);
+                Logger.LogTrace("ChargePoint: Loading charge points...");
+                List<ChargePoint> dbChargePoints = DbContext.ChargePoints.OrderBy(x => x.Name).ToList<ChargePoint>();
+                Logger.LogInformation("ChargePoint: Found {0} chargepoints", dbChargePoints.Count);
 
-                    ChargePoint currentChargePoint = null;
-                    if (!string.IsNullOrEmpty(Id))
+                ChargePoint currentChargePoint = null;
+                if (!string.IsNullOrEmpty(Id))
+                {
+                    foreach (ChargePoint cp in dbChargePoints)
                     {
-                        foreach (ChargePoint cp in dbChargePoints)
+                        if (cp.ChargePointId.Equals(Id, StringComparison.InvariantCultureIgnoreCase))
                         {
-                            if (cp.ChargePointId.Equals(Id, StringComparison.InvariantCultureIgnoreCase))
-                            {
-                                currentChargePoint = cp;
-                                Logger.LogTrace("ChargePoint: Current charge point: {0} / {1}", cp.ChargePointId, cp.Name);
-                                break;
-                            }
+                            currentChargePoint = cp;
+                            Logger.LogTrace("ChargePoint: Current chargepoint: {0} / {1}", cp.ChargePointId, cp.Name);
+                            break;
                         }
                     }
+                }
 
-                    if (Request.Method == "POST")
+                if (Request.Method == "POST")
+                {
+                    string errorMsg = null;
+
+                    if (Id == "@")
                     {
-                        string errorMsg = null;
+                        Logger.LogTrace("ChargePoint: Creating new chargepoint...");
 
-                        if (Id == "@")
+                        // Create new tag
+                        if (string.IsNullOrWhiteSpace(cpvm.ChargePointId))
                         {
-                            Logger.LogTrace("ChargePoint: Creating new charge point...");
+                            errorMsg = _localizer["ChargePointIdRequired"].Value;
+                            Logger.LogInformation("ChargePoint: New => no chargepoint ID entered");
+                        }
 
-                            // Create new tag
-                            if (string.IsNullOrWhiteSpace(cpvm.ChargePointId))
+                        if (string.IsNullOrEmpty(errorMsg))
+                        {
+                            // check if duplicate
+                            foreach (ChargePoint cp in dbChargePoints)
                             {
-                                errorMsg = _localizer["ChargePointIdRequired"].Value;
-                                Logger.LogInformation("ChargePoint: New => no charge point ID entered");
-                            }
-
-                            if (string.IsNullOrEmpty(errorMsg))
-                            {
-                                // check if duplicate
-                                foreach (ChargePoint cp in dbChargePoints)
+                                if (cp.ChargePointId.Equals(cpvm.ChargePointId, StringComparison.InvariantCultureIgnoreCase))
                                 {
-                                    if (cp.ChargePointId.Equals(cpvm.ChargePointId, StringComparison.InvariantCultureIgnoreCase))
-                                    {
-                                        // id already exists
-                                        errorMsg = _localizer["ChargePointIdExists"].Value;
-                                        Logger.LogInformation("ChargePoint: New => charge point ID already exists: {0}", cpvm.ChargePointId);
-                                        break;
-                                    }
+                                    // id already exists
+                                    errorMsg = _localizer["ChargePointIdExists"].Value;
+                                    Logger.LogInformation("ChargePoint: New => chargepoint ID already exists: {0}", cpvm.ChargePointId);
+                                    break;
                                 }
                             }
+                        }
 
-                            if (string.IsNullOrEmpty(errorMsg))
+                        if (string.IsNullOrEmpty(errorMsg))
+                        {
+                            // Save tag in DB
+                            ChargePoint newChargePoint = new ChargePoint();
+                            newChargePoint.ChargePointId = cpvm.ChargePointId;
+                            newChargePoint.Name = cpvm.Name;
+                            newChargePoint.Comment = cpvm.Comment;
+                            newChargePoint.Username = cpvm.Username;
+                            newChargePoint.Password = cpvm.Password;
+                            newChargePoint.ClientCertThumb = cpvm.ClientCertThumb;
+                            DbContext.ChargePoints.Add(newChargePoint);
+                            DbContext.SaveChanges();
+                            Logger.LogInformation("ChargePoint: New => charge point saved: {0} / {1}", cpvm.ChargePointId, cpvm.Name);
+                        }
+                        else
+                        {
+                            ViewBag.ErrorMsg = errorMsg;
+                            return View("ChargePointDetail", cpvm);
+                        }
+                    }
+                    else if (currentChargePoint.ChargePointId == Id)
+                    {
+                        if (Request.Form["action"] == "Delete")
+                        {
+                            // Delete existing tag
+                            Logger.LogDebug("ChargeTag: Edit => Deleting tag {0} ...", currentChargePoint.ChargePointId);
+
+                            using (var transaction = DbContext.Database.BeginTransaction())
                             {
-                                // Save tag in DB
-                                ChargePoint newChargePoint = new ChargePoint();
-                                newChargePoint.ChargePointId = cpvm.ChargePointId;
-                                newChargePoint.Name = cpvm.Name;
-                                newChargePoint.Comment = cpvm.Comment;
-                                newChargePoint.Username = cpvm.Username;
-                                newChargePoint.Password = cpvm.Password;
-                                newChargePoint.ClientCertThumb = cpvm.ClientCertThumb;
-                                dbContext.ChargePoints.Add(newChargePoint);
-                                dbContext.SaveChanges();
-                                Logger.LogInformation("ChargePoint: New => charge point saved: {0} / {1}", cpvm.ChargePointId, cpvm.Name);
-                            }
-                            else
-                            {
-                                ViewBag.ErrorMsg = errorMsg;
-                                return View("ChargePointDetail", cpvm);
+                                try
+                                {
+                                    // Delete corresponding transactions
+                                    var delTransactions = DbContext.Transactions.Where(t => t.ChargePointId == currentChargePoint.ChargePointId).ExecuteDelete();
+                                    Logger.LogDebug("ChargeTag: Edit => Deleted {0} transactions", delTransactions);
+                                    // Delete corresponding connectors
+                                    var delConnectorStatuses = DbContext.ConnectorStatuses.Where(s => s.ChargePointId == currentChargePoint.ChargePointId).ExecuteDelete();
+                                    Logger.LogDebug("ChargeTag: Edit => Deleted {0} connectors statuses", delConnectorStatuses);
+                                    // And finally delete the chargeoint itself
+                                    var delChargePoints = DbContext.ChargePoints.Where(c => c.ChargePointId == currentChargePoint.ChargePointId).ExecuteDelete();
+                                    Logger.LogDebug("ChargeTag: Edit => Deleted {0} chargepoints", delChargePoints);
+
+                                    if (delChargePoints == 1)
+                                    {
+                                        Logger.LogInformation("ChargeTag: Edit => Committing deletion of chargepoint '{0}'", currentChargePoint.ChargePointId);
+                                        transaction.Commit();
+                                    }
+                                    else
+                                    {
+                                        Logger.LogWarning("ChargePoint: Deleting chargepoint '{0}' => no chargepoint with that ID deleted!?", currentChargePoint.ChargePointId);
+                                        transaction.Rollback();
+                                    }
+                                }
+                                catch (Exception exp)
+                                {
+                                    Logger.LogError(exp, "ChargePoint: Error deleting chargepoint '{0}' from database", currentChargePoint.ChargePointId);
+                                    transaction.Rollback();
+                                    throw;
+                                }
                             }
                         }
-                        else if (currentChargePoint.ChargePointId == Id)
+                        else
                         {
                             // Save existing charge point
                             Logger.LogTrace("ChargePoint: Saving charge point '{0}'", Id);
@@ -125,38 +163,38 @@ namespace OCPP.Core.Management.Controllers
                             currentChargePoint.Password = cpvm.Password;
                             currentChargePoint.ClientCertThumb = cpvm.ClientCertThumb;
 
-                            dbContext.SaveChanges();
-                            Logger.LogInformation("ChargePoint: Edit => charge point saved: {0} / {1}", cpvm.ChargePointId, cpvm.Name);
+                            DbContext.SaveChanges();
+                            Logger.LogInformation("ChargePoint: Edit => chargepoint saved: {0} / {1}", cpvm.ChargePointId, cpvm.Name);
                         }
-
-                        return RedirectToAction("ChargePoint", new { Id = "" });
                     }
-                    else
+
+                    return RedirectToAction("ChargePoint", new { Id = "" });
+                }
+                else
+                {
+                    // Display charge point
+                    cpvm = new ChargePointViewModel();
+                    cpvm.ChargePoints = dbChargePoints;
+                    cpvm.CurrentId = Id;
+
+                    if (currentChargePoint!= null)
                     {
-                        // Display charge point
                         cpvm = new ChargePointViewModel();
-                        cpvm.ChargePoints = dbChargePoints;
-                        cpvm.CurrentId = Id;
-
-                        if (currentChargePoint!= null)
-                        {
-                            cpvm = new ChargePointViewModel();
-                            cpvm.ChargePointId = currentChargePoint.ChargePointId;
-                            cpvm.Name = currentChargePoint.Name;
-                            cpvm.Comment = currentChargePoint.Comment;
-                            cpvm.Username = currentChargePoint.Username;
-                            cpvm.Password = currentChargePoint.Password;
-                            cpvm.ClientCertThumb = currentChargePoint.ClientCertThumb;
-                        }
-
-                        string viewName = (!string.IsNullOrEmpty(cpvm.ChargePointId) || Id == "@") ? "ChargePointDetail" : "ChargePointList";
-                        return View(viewName, cpvm);
+                        cpvm.ChargePointId = currentChargePoint.ChargePointId;
+                        cpvm.Name = currentChargePoint.Name;
+                        cpvm.Comment = currentChargePoint.Comment;
+                        cpvm.Username = currentChargePoint.Username;
+                        cpvm.Password = currentChargePoint.Password;
+                        cpvm.ClientCertThumb = currentChargePoint.ClientCertThumb;
                     }
+
+                    string viewName = (!string.IsNullOrEmpty(cpvm.ChargePointId) || Id == "@") ? "ChargePointDetail" : "ChargePointList";
+                    return View(viewName, cpvm);
                 }
             }
             catch (Exception exp)
             {
-                Logger.LogError(exp, "ChargePoint: Error loading charge points from database");
+                Logger.LogError(exp, "ChargePoint: Error loading/editing chargepoint(s)");
                 TempData["ErrMessage"] = exp.Message;
                 return RedirectToAction("Error", new { Id = "" });
             }

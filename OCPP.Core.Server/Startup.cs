@@ -29,10 +29,12 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using OCPP.Core.Database;
 
@@ -47,6 +49,13 @@ namespace OCPP.Core.Server
 
         public Startup(IConfiguration configuration)
         {
+            if (!configuration.GetSection("ConnectionStrings").Exists())
+            {
+                // Running the exe (Kestrel) hasn't loaded the config at this point!?
+                // => Workaround: use the created configuration from main()
+                configuration = Program._configuration;
+            }            
+
             Configuration = configuration;
         }
 
@@ -55,6 +64,7 @@ namespace OCPP.Core.Server
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
+            services.AddOCPPDbContext(Configuration);
             services.AddControllers();
         }
 
@@ -62,7 +72,8 @@ namespace OCPP.Core.Server
         //public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         public void Configure(IApplicationBuilder app,
                             IWebHostEnvironment env,
-                            ILoggerFactory loggerFactory)
+                            ILoggerFactory loggerFactory,
+                            IServiceScopeFactory serviceScopeFactory)
         {
             LoggerFactory = loggerFactory;
             ILogger logger = loggerFactory.CreateLogger(typeof(Startup));
@@ -71,6 +82,16 @@ namespace OCPP.Core.Server
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
+            }
+
+            // Migrate database
+            using var scope = serviceScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<OCPPCoreContext>();
+            // but only when not disabled (needs admin permissions in SQL-Server!)
+            bool dbMigrate = Configuration.GetValue<bool>("AutoMigrateDB", true);
+            if (dbMigrate)
+            {
+                dbContext.Database.Migrate();
             }
 
             // Set WebSocketsOptions

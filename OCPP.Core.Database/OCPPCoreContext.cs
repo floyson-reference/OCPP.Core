@@ -29,13 +29,6 @@ namespace OCPP.Core.Database
 {
     public partial class OCPPCoreContext : DbContext
     {
-        private IConfiguration _configuration;
-
-        public OCPPCoreContext(IConfiguration config) : base()
-        {
-            _configuration = config;
-        }
-
         public OCPPCoreContext(DbContextOptions<OCPPCoreContext> options)
             : base(options)
         {
@@ -44,26 +37,8 @@ namespace OCPP.Core.Database
         public virtual DbSet<ChargePoint> ChargePoints { get; set; }
         public virtual DbSet<ChargeTag> ChargeTags { get; set; }
         public virtual DbSet<ConnectorStatus> ConnectorStatuses { get; set; }
-        public virtual DbSet<ConnectorStatusView> ConnectorStatusViews { get; set; }
         public virtual DbSet<MessageLog> MessageLogs { get; set; }
         public virtual DbSet<Transaction> Transactions { get; set; }
-
-        protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-        {
-            if (!optionsBuilder.IsConfigured)
-            {
-                string sqlConnString = _configuration.GetConnectionString("SqlServer");
-                string liteConnString = _configuration.GetConnectionString("SQLite");
-                if (!string.IsNullOrWhiteSpace(sqlConnString))
-                {
-                    optionsBuilder.UseSqlServer(sqlConnString);
-                }
-                else if (!string.IsNullOrWhiteSpace(liteConnString))
-                {
-                    optionsBuilder.UseSqlite(liteConnString);
-                }
-            }
-        }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -112,29 +87,6 @@ namespace OCPP.Core.Database
                 entity.Property(e => e.LastStatus).HasMaxLength(100);
             });
 
-            modelBuilder.Entity<ConnectorStatusView>(entity =>
-            {
-                entity.HasNoKey();
-
-                entity.ToView("ConnectorStatusView");
-
-                entity.Property(e => e.ChargePointId)
-                    .IsRequired()
-                    .HasMaxLength(100);
-
-                entity.Property(e => e.ConnectorName).HasMaxLength(100);
-
-                entity.Property(e => e.LastStatus).HasMaxLength(100);
-
-                entity.Property(e => e.StartResult).HasMaxLength(100);
-
-                entity.Property(e => e.StartTagId).HasMaxLength(50);
-
-                entity.Property(e => e.StopReason).HasMaxLength(100);
-
-                entity.Property(e => e.StopTagId).HasMaxLength(50);
-            });
-
             modelBuilder.Entity<MessageLog>(entity =>
             {
                 entity.HasKey(e => e.LogId);
@@ -162,19 +114,21 @@ namespace OCPP.Core.Database
                     .IsRequired()
                     .HasMaxLength(100);
 
-                entity.Property(e => e.StartResult).HasMaxLength(100);
-
                 entity.Property(e => e.StartTagId).HasMaxLength(50);
 
-                entity.Property(e => e.StopReason).HasMaxLength(100);
+                entity.Property(e => e.StartResult).HasMaxLength(100);
 
                 entity.Property(e => e.StopTagId).HasMaxLength(50);
+
+                entity.Property(e => e.StopReason).HasMaxLength(100);
 
                 entity.HasOne(d => d.ChargePoint)
                     .WithMany(p => p.Transactions)
                     .HasForeignKey(d => d.ChargePointId)
                     .OnDelete(DeleteBehavior.ClientSetNull)
                     .HasConstraintName("FK_Transactions_ChargePoint");
+
+                entity.HasIndex(e => new { e.ChargePointId, e.ConnectorId });
             });
 
             OnModelCreatingPartial(modelBuilder);

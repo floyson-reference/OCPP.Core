@@ -126,6 +126,18 @@
   <data name="ChargePointIdRequired" xml:space="preserve">
     <value>Please enter an charging station ID.</value>
   </data>
+  <data name="ChargeReport" xml:space="preserve">
+    <value>ChargeReport</value>
+  </data>
+  <data name="ChargeReportEnergy" xml:space="preserve">
+    <value>Energy</value>
+  </data>
+  <data name="ChargeReportGroup" xml:space="preserve">
+    <value>Group</value>
+  </data>
+  <data name="ChargeReportTag" xml:space="preserve">
+    <value>Charge-Tag</value>
+  </data>
   <data name="ChargeSum" xml:space="preserve">
     <value>Charged</value>
   </data>
@@ -138,14 +150,23 @@
   <data name="Connector" xml:space="preserve">
     <value>Connector</value>
   </data>
+  <data name="Energy-kWh" xml:space="preserve">
+    <value>Energy (kWh)</value>
+  </data>
   <data name="ErrorOCPPServer" xml:space="preserve">
     <value>No current status could be retrieved from the OCPP server.</value>
+  </data>
+  <data name="ReportSheetName" xml:space="preserve">
+    <value>Transactions</value>
   </data>
   <data name="StartMeter" xml:space="preserve">
     <value>Start-Meter</value>
   </data>
   <data name="StartTag" xml:space="preserve">
     <value>Start-Tag</value>
+  </data>
+  <data name="StartTagID" xml:space="preserve">
+    <value>Start-Tag ID</value>
   </data>
   <data name="StartTime" xml:space="preserve">
     <value>Start</value>
@@ -156,7 +177,13 @@
   <data name="StopTag" xml:space="preserve">
     <value>Stop-Tag</value>
   </data>
+  <data name="StopTagID" xml:space="preserve">
+    <value>Stop-Tag ID</value>
+  </data>
   <data name="StopTime" xml:space="preserve">
     <value>Stop</value>
+  </data>
+  <data name="TransactionID" xml:space="preserve">
+    <value>Trancaction ID</value>
   </data>
 </root>
