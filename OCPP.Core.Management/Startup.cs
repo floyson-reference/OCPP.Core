@@ -18,21 +18,23 @@
  */
 
 using System;
-using System.Collections.Generic;
-using System.Globalization;
-using System.Linq;
-using System.Threading.Tasks;
+using Hangfire;
+using Hangfire.Dashboard;
+using Hangfire.Dashboard.BasicAuthorization;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.Mvc.Razor;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using OCPP.Core.Database;
+using OCPP.Core.Database.Repository;
+using OCPP.Core.Database.Repository.Impl;
+using OCPP.Core.Management.BackgroundServices;
+using OCPP.Core.Management.BackgroundServices.Impl;
+using OCPP.Core.Management.BackgroundServices.Models;
 
 namespace OCPP.Core.Management
 {
@@ -75,8 +77,32 @@ namespace OCPP.Core.Management
                 options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
             });
 
+            services.AddHttpClient();
+            services.AddScoped<ITransactionsRepository, TransactionsRepository>();
+            services.AddScoped<IEmailExcelExportService, EmailExcelExportService>();
+            services.AddScoped<ICregPriceService, CregPriceService>();
+            services.Configure<SmtpSettings>(Configuration.GetSection("SmtpSettings"));
+
             services.AddScoped<IUserManager, UserManager>();
             services.AddDistributedMemoryCache();
+
+            services.AddHangfireServer(backgroundJosServerOptions =>
+            {
+                backgroundJosServerOptions.WorkerCount = 1;
+            });
+
+            services.AddHangfire(configuration =>
+                configuration.UseSqlServerStorage(Configuration.GetConnectionString("HangfireDb"), new Hangfire.SqlServer.SqlServerStorageOptions
+                {
+                    UseRecommendedIsolationLevel = true,
+                    QueuePollInterval = TimeSpan.FromSeconds(15),
+                    JobExpirationCheckInterval = TimeSpan.FromHours(1),
+                    CountersAggregateInterval = TimeSpan.FromMinutes(5),
+                    PrepareSchemaIfNecessary = true,
+                    DashboardJobListLimit = 50000,
+                    TransactionTimeout = TimeSpan.FromMinutes(1),
+                    SchemaName = "Hangfire"
+                }));
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -109,6 +135,30 @@ namespace OCPP.Core.Management
                     name: "default",
                     pattern: "{controller=Home}/{action=Index}/{id?}/{connectorId?}/");
             });
+
+            app.UseHangfireDashboard(options: new DashboardOptions
+            {
+                Authorization =
+                [
+                    new Hangfire.Dashboard.BasicAuthorization.BasicAuthAuthorizationFilter(new Hangfire.Dashboard.BasicAuthorization.BasicAuthAuthorizationFilterOptions
+                    {
+                        RequireSsl = false,
+                        SslRedirect = false,
+                        LoginCaseSensitive = false,
+                        Users = [
+                            new BasicAuthAuthorizationUser
+                            {
+                                Login = "frederic",
+                                PasswordClear = "H@ngf!re123"
+                            },
+                        ]
+                    })
+                ],
+                IsReadOnlyFunc = (DashboardContext context) => false,
+            });
+
+            var exportLastQuarterTransactionsCron = Configuration.GetSection("CronSettings")["ExportLastQuarterTransactionsCron"];
+            RecurringJob.AddOrUpdate<IEmailExcelExportService>("exportLastQuarterTransactions", x => x.ExportLastQuarterTransactionsAsync(), () => exportLastQuarterTransactionsCron, new RecurringJobOptions { TimeZone = TimeZoneInfo.Local });
         }
     }
 }
