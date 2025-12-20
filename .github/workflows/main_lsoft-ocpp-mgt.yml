@@ -29,11 +29,14 @@ jobs:
       - name: dotnet publish
         run: dotnet publish -c Release -o "${{env.DOTNET_ROOT}}/myapp"
 
+      - name: Zip published files
+        run: Compress-Archive -Path "${{env.DOTNET_ROOT}}/myapp/*" -DestinationPath "${{env.DOTNET_ROOT}}/myapp.zip"
+
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: .net-app
-          path: ${{env.DOTNET_ROOT}}/myapp
+          path: ${{env.DOTNET_ROOT}}/myapp.zip
 
   deploy:
     runs-on: windows-latest
@@ -44,14 +47,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: .net-app
-      
+
       - name: Deploy to Azure Web App
         id: deploy-to-webapp
-        uses: azure/webapps-deploy@v3
+        uses: azure/webapps-deploy@v2
         with:
           app-name: 'lsoft-ocpp-mgt'
           slot-name: 'Production'
-          package: .
+          package: myapp.zip
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_63BDF689CD204C3B8094FC2017B78A85 }}
-          type: 'zip'
-          clean: true
