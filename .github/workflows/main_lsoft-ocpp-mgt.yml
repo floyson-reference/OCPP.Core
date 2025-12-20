@@ -29,30 +29,37 @@ jobs:
       - name: dotnet publish
         run: dotnet publish -c Release -o "${{env.DOTNET_ROOT}}/myapp"
 
-      - name: Zip published files
-        run: Compress-Archive -Path "${{env.DOTNET_ROOT}}/myapp/*" -DestinationPath "${{env.DOTNET_ROOT}}/myapp.zip"
-
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: .net-app
-          path: ${{env.DOTNET_ROOT}}/myapp.zip
+          path: ${{env.DOTNET_ROOT}}/myapp
 
   deploy:
     runs-on: windows-latest
     needs: build
-    
+    permissions:
+      id-token: write #This is required for requesting the JWT
+      contents: read #This is required for actions/checkout
+
     steps:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
           name: .net-app
+      
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_5D0011CD87E144DEA2ADDBA5C1915D21 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_5941DB72D03F42748A3AC2ADC84F093E }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_5610DCEB6EF4408FBF30399F74E83154 }}
 
       - name: Deploy to Azure Web App
         id: deploy-to-webapp
-        uses: azure/webapps-deploy@v2
+        uses: azure/webapps-deploy@v3
         with:
           app-name: 'lsoft-ocpp-mgt'
           slot-name: 'Production'
-          package: myapp.zip
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_63BDF689CD204C3B8094FC2017B78A85 }}
+          package: .
+          
